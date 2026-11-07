@@ -1,6 +1,7 @@
 """Stage a GitHub Pages artifact from explicitly referenced public JSON."""
 import argparse
 from datetime import datetime
+from hashlib import sha256
 import json
 from pathlib import Path
 import re
@@ -8,6 +9,8 @@ import tempfile
 
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 
+# The previous release may still carry the original v1 schema, before model inputs.
+LEGACY_SCHEMA_DIGEST = "ca1dc3849db7cbad36d86e7e22e38e38df1546c7421bcfde6029a40601fa5bed"
 
 def read_json(path):
     if not path.is_file() or path.is_symlink():
@@ -42,7 +45,7 @@ def validator(schema):
     return Draft202012Validator(schema, format_checker=checker)
 
 
-def release(manifest_path, schema, check):
+def release(manifest_path, schema, check, *, predecessor=False):
     raw, manifest = read_json(manifest_path)
     check.validate(manifest)
     if manifest["kind"] != "manifest":
@@ -63,7 +66,11 @@ def release(manifest_path, schema, check):
     schema_path = manifest["schema_path"]
     schema_raw, supplied_schema = get(schema_path, f"{prefix}/schema.json")
     if supplied_schema != schema:
-        raise ValueError("Feed schema differs from trusted publisher schema")
+        canonical = json.dumps(supplied_schema, sort_keys=True, separators=(",", ":")).encode()
+        if not predecessor or sha256(canonical).hexdigest() != LEGACY_SCHEMA_DIGEST:
+            raise ValueError("Feed schema differs from trusted publisher schema")
+        check = validator(supplied_schema)
+        check.validate(manifest)
     assets = {schema_path: schema_raw}
     for kind in ("games", "history", "reports"):
         days = set()
@@ -97,7 +104,7 @@ def stage(source, output, schema_path, previous=None, transport=False, clean_inp
     raw, current, assets = release(source / "manifest.json", schema, check)
     previous_raw = None
     if previous:
-        previous_raw, old, retained = release(previous, schema, check)
+        previous_raw, old, retained = release(previous, schema, check, predecessor=True)
         for path, content in retained.items():
             if path in assets and content != assets[path]:
                 raise ValueError("Immutable release path has conflicting content")

@@ -513,6 +513,49 @@
       },
       "additionalProperties": false
     },
+    "model_inputs": {
+      "type": "object",
+      "required": ["source", "home", "away", "matchup"],
+      "properties": {
+        "source": { "enum": ["captured", "reconstructed"] },
+        "home": { "$ref": "#/$defs/team_model_inputs" },
+        "away": { "$ref": "#/$defs/team_model_inputs" },
+        "matchup": {
+          "type": "object",
+          "required": ["tempo", "home_efficiency_signal", "away_efficiency_signal", "venue_margin_per_100"],
+          "properties": {
+            "tempo": { "type": "number" },
+            "home_efficiency_signal": { "type": "number" },
+            "away_efficiency_signal": { "type": "number" },
+            "venue_margin_per_100": { "type": "number" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "team_model_inputs": {
+      "type": "object",
+      "required": [
+        "adj_offense", "adj_defense", "tempo", "prior_efficiency_games",
+        "off_efg", "off_tov", "off_orb", "off_ftr", "def_efg", "def_tov", "def_orb", "def_ftr"
+      ],
+      "properties": {
+        "adj_offense": { "type": "number" },
+        "adj_defense": { "type": "number" },
+        "tempo": { "type": "number" },
+        "prior_efficiency_games": { "type": "integer", "minimum": 0 },
+        "off_efg": { "type": "number" },
+        "off_tov": { "type": "number" },
+        "off_orb": { "type": "number" },
+        "off_ftr": { "type": "number" },
+        "def_efg": { "type": "number" },
+        "def_tov": { "type": "number" },
+        "def_orb": { "type": "number" },
+        "def_ftr": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
     "forecast": {
       "type": "object",
       "required": [
@@ -678,6 +721,9 @@
         },
         "away": {
           "$ref": "#/$defs/team"
+        },
+        "model_inputs": {
+          "$ref": "#/$defs/model_inputs"
         },
         "calibration": {
           "anyOf": [
