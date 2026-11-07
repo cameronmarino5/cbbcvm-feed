@@ -545,6 +545,8 @@
         "adj_defense": { "type": "number" },
         "tempo": { "type": "number" },
         "prior_efficiency_games": { "type": "integer", "minimum": 0 },
+        "prior_finals": { "type": "integer", "minimum": 0 },
+        "prior_season_efficiency_games": { "type": "integer", "minimum": 0 },
         "off_efg": { "type": "number" },
         "off_tov": { "type": "number" },
         "off_orb": { "type": "number" },

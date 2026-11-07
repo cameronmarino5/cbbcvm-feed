@@ -9,8 +9,11 @@ import tempfile
 
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 
-# The previous release may still carry the original v1 schema, before model inputs.
-LEGACY_SCHEMA_DIGEST = "ca1dc3849db7cbad36d86e7e22e38e38df1546c7421bcfde6029a40601fa5bed"
+# Allow the exact published predecessors during backward-compatible feed upgrades.
+LEGACY_SCHEMA_DIGESTS = {
+    "ca1dc3849db7cbad36d86e7e22e38e38df1546c7421bcfde6029a40601fa5bed",
+    "6835d7307cdbef714f6664f002493f64160d17f8b6e4a9c0924281f748882fe4",
+}
 
 def read_json(path):
     if not path.is_file() or path.is_symlink():
@@ -67,7 +70,7 @@ def release(manifest_path, schema, check, *, predecessor=False):
     schema_raw, supplied_schema = get(schema_path, f"{prefix}/schema.json")
     if supplied_schema != schema:
         canonical = json.dumps(supplied_schema, sort_keys=True, separators=(",", ":")).encode()
-        if not predecessor or sha256(canonical).hexdigest() != LEGACY_SCHEMA_DIGEST:
+        if not predecessor or sha256(canonical).hexdigest() not in LEGACY_SCHEMA_DIGESTS:
             raise ValueError("Feed schema differs from trusted publisher schema")
         check = validator(supplied_schema)
         check.validate(manifest)
