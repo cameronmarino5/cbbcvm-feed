@@ -1,0 +1,99 @@
+name: Publish public forecast feed
+
+on:
+  push:
+    branches: [main]
+    paths: [feed-input/manifest.json]
+  workflow_dispatch:
+
+permissions: {}
+concurrency:
+  group: forecast-pages
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.stage.outputs.release }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install validator
+        run: python -m pip install jsonschema==4.26.0
+      - name: Validate and stage only public JSON
+        id: stage
+        shell: bash
+        run: |
+          predecessor=$(git log -2 --format=%H -- feed-input/manifest.json | sed -n '2p')
+          if [[ -n "$predecessor" ]]; then
+            git show "$predecessor:feed-input/manifest.json" | cmp -s - feed-input/previous-manifest.json
+            if [[ -n "$(git diff --name-only --diff-filter=MT "$predecessor" HEAD -- feed-input/releases)" ]]; then
+              echo "Existing release files changed; export under a new release ID." >&2
+              exit 1
+            fi
+          fi
+          args=()
+          if [[ -f feed-input/previous-manifest.json ]]; then
+            args+=(--previous-manifest feed-input/previous-manifest.json)
+          fi
+          python scripts/stage_pages_feed.py --source feed-input --output "$RUNNER_TEMP/pages" \
+            --schema src/cbbcvm/export/schema.json --clean-input "${args[@]}"
+          python -c 'import json,sys; print("release=" + json.load(open(sys.argv[1]))["release_id"])' "$RUNNER_TEMP/pages/manifest.json" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: ${{ runner.temp }}/pages
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Activate validated release
+        id: deploy
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+      - name: Verify HTTPS manifest and one shard
+        env:
+          EXPECTED_RELEASE: ${{ needs.validate.outputs.release }}
+          PAGES_URL: ${{ steps.deploy.outputs.page_url }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          from urllib.request import urlopen
+          from urllib.parse import urljoin, urlsplit
+
+          base = os.environ["PAGES_URL"].rstrip("/") + "/"
+          if urlsplit(base).scheme != "https":
+              raise SystemExit("Pages URL is not HTTPS")
+          expected = os.environ["EXPECTED_RELEASE"]
+          for attempt in range(6):
+              try:
+                  with urlopen(urljoin(base, f"manifest.json?release={expected}&attempt={attempt}"), timeout=10) as response:
+                      manifest = json.load(response)
+                  if manifest.get("release_id") == expected:
+                      break
+              except (OSError, ValueError):
+                  pass
+              time.sleep(5)
+          else:
+              raise SystemExit("The expected release was not visible over HTTPS")
+          assert manifest["kind"] == "manifest" and manifest["schema_version"] == 1
+          if manifest["games"]:
+              with urlopen(urljoin(base, manifest["games"][0]["path"]), timeout=20) as response:
+                  shard = json.load(response)
+              assert shard["release_id"] == manifest["release_id"]
+          print(urljoin(base, "manifest.json"))
+          PY
